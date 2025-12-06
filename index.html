@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arix Signature Tree</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle at center, #132e18 0%, #000000 100%);
+            overflow: hidden;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 2rem;
+            box-sizing: border-box;
+        }
+
+        #greeting-label {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: translate3d(-50%, -100%, 0);
+            text-align: center;
+            pointer-events: none;
+            transition: opacity 1s ease;
+            opacity: 0;
+            width: 400px; /* Width to prevent wrapping issues */
+        }
+
+        .btn-luxury {
+            pointer-events: auto;
+            transition: all 0.7s ease-out;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        /* Glow effects for text */
+        .text-glow-gold {
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
+        }
+        .text-glow-white {
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+        }
+    </style>
+    
+    <!-- Import Maps for Three.js -->
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.2",
+    "@react-three/drei": "https://aistudiocdn.com/@react-three/drei@^10.7.7",
+    "@react-three/postprocessing": "https://aistudiocdn.com/@react-three/postprocessing@^3.0.4"
+  }
+}
+</script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <!-- Header -->
+        <header class="flex justify-between items-start">
+            <div class="bg-black/30 backdrop-blur-md p-4 rounded-lg border border-emerald-900/50">
+                <h1 class="text-emerald-400 text-sm tracking-[0.3em] font-light uppercase">
+                    Arix Signature
+                </h1>
+                <h2 class="text-amber-100 text-2xl font-serif mt-1">
+                    Interactive Christmas
+                </h2>
+            </div>
+        </header>
+
+        <!-- Dynamic Greeting Text (Positioned via JS) -->
+        <div id="greeting-label">
+            <h1 class="text-3xl md:text-5xl font-bold text-amber-300 text-glow-gold font-serif tracking-wider mb-2">
+                傅狗狗祝 Ethan
+            </h1>
+            <h2 class="text-2xl md:text-4xl font-bold text-white text-glow-white">
+                早日康复 ❥(^_-)
+            </h2>
+        </div>
+
+        <!-- Footer Control -->
+        <footer class="flex justify-center pb-8">
+            <button id="toggle-btn" class="btn-luxury px-8 py-4 rounded-full text-sm font-bold border-2 shadow-[0_0_20px_rgba(0,0,0,0.5)] bg-emerald-950/80 text-emerald-400 border-emerald-600 hover:bg-emerald-900 hover:border-emerald-400">
+                Assemble Tree
+            </button>
+        </footer>
+    </div>
+
+    <!-- Decorative Corners -->
+    <div class="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-emerald-900/20 to-transparent pointer-events-none z-0"></div>
+    <div class="absolute bottom-0 right-0 w-32 h-32 bg-gradient-to-tl from-yellow-900/20 to-transparent pointer-events-none z-0"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- CONSTANTS ---
+        const CONFIG = {
+            NEEDLE_COUNT: 2500,
+            ORNAMENT_COUNT: 150,
+            GIFT_COUNT: 60,
+            RIBBON_COUNT: 800,
+            TREE_HEIGHT: 14,
+            TREE_RADIUS: 5.5,
+            SCATTER_RADIUS: 25,
+            ANIMATION_SPEED: 2.5
+        };
+
+        const COLORS = {
+            EMERALD: 0x2D5A27, // Deep Pine Green
+            GOLD: 0xFFD700,
+            RED: 0xD41C1C,
+            ROSE_GOLD: 0xB76E79
+        };
+
+        // --- STATE ---
+        let isTreeForm = false;
+        let animProgress = 0; // 0 = Scattered, 1 = Tree
+
+        // --- SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Fog for depth
+        scene.fog = new THREE.FogExp2(0x0a1f11, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 35);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        container.appendChild(renderer.domElement);
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0x001100, 1.5);
+        scene.add(ambientLight);
+
+        const spotLight = new THREE.SpotLight(0xffeebb, 50);
+        spotLight.position.set(10, 20, 10);
+        spotLight.angle = 0.5;
+        spotLight.penumbra = 1;
+        spotLight.decay = 1.5;
+        spotLight.distance = 100;
+        scene.add(spotLight);
+
+        const greenLight = new THREE.PointLight(0x00ff44, 2, 50);
+        greenLight.position.set(-10, -5, -10);
+        scene.add(greenLight);
+
+        // --- SNOW SYSTEM ---
+        const snowGeo = new THREE.BufferGeometry();
+        const snowCount = 2000;
+        const snowPos = new Float32Array(snowCount * 3);
+        const snowVelocities = []; 
+        for(let i=0; i<snowCount; i++) {
+            snowPos[i*3] = (Math.random() - 0.5) * 60; // x
+            snowPos[i*3+1] = (Math.random() - 0.5) * 60; // y
+            snowPos[i*3+2] = (Math.random() - 0.5) * 60; // z
+            snowVelocities.push(Math.random() * 0.1 + 0.05); // Falling speed
+        }
+        snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+        const snowMat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.15,
+            transparent: true,
+            opacity: 0.6
+        });
+        const snowSystem = new THREE.Points(snowGeo, snowMat);
+        scene.add(snowSystem);
+
+        // --- OBJECTS ---
+        const dummy = new THREE.Object3D();
+        const _position = new THREE.Vector3();
+        const _quaternion = new THREE.Quaternion();
+        const _scale = new THREE.Vector3();
+
+        // Data arrays to hold dual positions
+        const meshes = []; // { mesh, data: [ { treePos, scatterPos, rotation, scale, type } ] }
+
+        // Helper: Random Scatter Position
+        function getRandomScatterPos() {
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const r = (Math.random() * 0.5 + 0.5) * CONFIG.SCATTER_RADIUS;
+            return new THREE.Vector3(
+                r * Math.sin(phi) * Math.cos(theta),
+                r * Math.sin(phi) * Math.sin(theta),
+                r * Math.cos(phi)
+            );
+        }
+
+        // 1. Needles
+        {
+            const geometry = new THREE.ConeGeometry(0.15, 0.6, 4);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: COLORS.EMERALD, 
+                roughness: 0.4, 
+                metalness: 0.4 
+            });
+            const count = CONFIG.NEEDLE_COUNT;
+            const mesh = new THREE.InstancedMesh(geometry, material, count);
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            scene.add(mesh);
+
+            const data = [];
+            for(let i=0; i<count; i++) {
+                const y = Math.random() * CONFIG.TREE_HEIGHT;
+                const rMax = (1 - y / CONFIG.TREE_HEIGHT) * CONFIG.TREE_RADIUS;
+                const angle = y * 5 + Math.random() * Math.PI * 2;
+                const r = (Math.random() * 0.6 + 0.4) * rMax;
+                
+                const treePos = new THREE.Vector3(
+                    Math.cos(angle) * r,
+                    y - CONFIG.TREE_HEIGHT / 2,
+                    Math.sin(angle) * r
+                );
+                
+                data.push({
+                    treePos,
+                    scatterPos: getRandomScatterPos(),
+                    scale: Math.random() * 1 + 0.5,
+                    type: 'needle'
+                });
+            }
+            meshes.push({ mesh, data });
+        }
+
+        // 2. Ornaments
+        {
+            const geometry = new THREE.DodecahedronGeometry(0.3, 0);
+            const material = new THREE.MeshStandardMaterial({
+                color: COLORS.GOLD,
+                emissive: COLORS.GOLD,
+                emissiveIntensity: 0.8,
+                roughness: 0.1,
+                metalness: 1.0
+            });
+            const count = CONFIG.ORNAMENT_COUNT;
+            const mesh = new THREE.InstancedMesh(geometry, material, count);
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            scene.add(mesh);
+
+            const data = [];
+            for(let i=0; i<count; i++) {
+                const y = Math.random() * (CONFIG.TREE_HEIGHT - 1) + 0.5;
+                const rMax = (1 - y / CONFIG.TREE_HEIGHT) * CONFIG.TREE_RADIUS;
+                const angle = Math.random() * Math.PI * 2;
+                
+                const treePos = new THREE.Vector3(
+                    Math.cos(angle) * rMax * 0.9,
+                    y - CONFIG.TREE_HEIGHT / 2,
+                    Math.sin(angle) * rMax * 0.9
+                );
+
+                data.push({
+                    treePos,
+                    scatterPos: getRandomScatterPos(),
+                    scale: Math.random() * 0.4 + 0.8,
+                    type: 'ornament'
+                });
+            }
+            meshes.push({ mesh, data });
+        }
+
+        // 3. Gifts (Red Cubes)
+        {
+            const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const material = new THREE.MeshStandardMaterial({
+                color: COLORS.RED,
+                emissive: COLORS.RED,
+                emissiveIntensity: 0.2,
+                roughness: 0.2,
+                metalness: 0.3
+            });
+            const count = CONFIG.GIFT_COUNT;
+            const mesh = new THREE.InstancedMesh(geometry, material, count);
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            scene.add(mesh);
+
+            const data = [];
+            for(let i=0; i<count; i++) {
+                const y = Math.random() * (CONFIG.TREE_HEIGHT * 0.7) + 0.2;
+                const rMax = (1 - y / CONFIG.TREE_HEIGHT) * CONFIG.TREE_RADIUS;
+                const angle = Math.random() * Math.PI * 2;
+
+                const treePos = new THREE.Vector3(
+                    Math.cos(angle) * rMax * 0.85,
+                    y - CONFIG.TREE_HEIGHT / 2,
+                    Math.sin(angle) * rMax * 0.85
+                );
+
+                data.push({
+                    treePos,
+                    scatterPos: getRandomScatterPos(),
+                    scale: Math.random() * 0.4 + 0.6,
+                    type: 'gift'
+                });
+            }
+            meshes.push({ mesh, data });
+        }
+
+        // 4. Ribbon (Spiral)
+        {
+            const geometry = new THREE.BoxGeometry(0.1, 0.02, 0.3); // Flat rectangular particles
+            const material = new THREE.MeshStandardMaterial({
+                color: COLORS.ROSE_GOLD,
+                emissive: COLORS.ROSE_GOLD,
+                emissiveIntensity: 0.5,
+                roughness: 0.1,
+                metalness: 0.9
+            });
+            const count = CONFIG.RIBBON_COUNT;
+            const mesh = new THREE.InstancedMesh(geometry, material, count);
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            scene.add(mesh);
+
+            const data = [];
+            const turns = 6;
+            for(let i=0; i<count; i++) {
+                const t = i / count;
+                const y = t * CONFIG.TREE_HEIGHT;
+                const r = ((1 - t) * CONFIG.TREE_RADIUS) + 0.2;
+                const angle = t * Math.PI * 2 * turns;
+
+                const treePos = new THREE.Vector3(
+                    Math.cos(angle) * r,
+                    y - CONFIG.TREE_HEIGHT / 2,
+                    Math.sin(angle) * r
+                );
+
+                // Calculate Tangent for rotation
+                const nextT = (i + 1) / count;
+                const nextY = nextT * CONFIG.TREE_HEIGHT;
+                const nextR = ((1 - nextT) * CONFIG.TREE_RADIUS) + 0.2;
+                const nextAngle = nextT * Math.PI * 2 * turns;
+                const nextPos = new THREE.Vector3(
+                    Math.cos(nextAngle) * nextR,
+                    nextY - CONFIG.TREE_HEIGHT / 2,
+                    Math.sin(nextAngle) * nextR
+                );
+                
+                const tangent = new THREE.Vector3().subVectors(nextPos, treePos).normalize();
+                const ribbonRot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), tangent);
+
+                data.push({
+                    treePos,
+                    scatterPos: getRandomScatterPos(),
+                    scale: 1,
+                    type: 'ribbon',
+                    rotation: ribbonRot
+                });
+            }
+            meshes.push({ mesh, data });
+        }
+
+        // --- 5-POINTED STAR ---
+        function createStar() {
+            const shape = new THREE.Shape();
+            const points = 5;
+            const outerRadius = 0.8;
+            const innerRadius = 0.35;
+
+            for (let i = 0; i < points * 2; i++) {
+                const angle = (i * Math.PI) / points - Math.PI / 2;
+                const r = i % 2 === 0 ? outerRadius : innerRadius;
+                const x = Math.cos(angle) * r;
+                const y = Math.sin(angle) * r;
+                if (i === 0) shape.moveTo(x, y);
+                else shape.lineTo(x, y);
+            }
+            shape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: 0.3,
+                bevelEnabled: true,
+                bevelThickness: 0.1,
+                bevelSize: 0.1,
+                bevelSegments: 2
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.center();
+
+            const material = new THREE.MeshStandardMaterial({
+                color: COLORS.GOLD,
+                emissive: COLORS.GOLD,
+                emissiveIntensity: 2,
+                roughness: 0.1,
+                metalness: 1
+            });
+
+            const starMesh = new THREE.Mesh(geometry, material);
+            starMesh.position.set(0, CONFIG.TREE_HEIGHT / 2 + 1, 0);
+            
+            // Add internal light
+            const light = new THREE.PointLight(COLORS.GOLD, 5, 10);
+            starMesh.add(light);
+            
+            return starMesh;
+        }
+
+        const star = createStar();
+        scene.add(star);
+        // Star and text visibility logic
+        star.scale.set(0,0,0);
+
+
+        // --- CONTROLS ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enablePan = false;
+        controls.minPolarAngle = Math.PI / 3;
+        controls.maxPolarAngle = Math.PI / 1.5;
+        controls.autoRotate = false;
+        controls.autoRotateSpeed = 0.5;
+
+        // --- POST PROCESSING ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0.5;
+        bloomPass.strength = 1.2;
+        bloomPass.radius = 0.6;
+        composer.addPass(bloomPass);
+
+        // --- UI LOGIC ---
+        const toggleBtn = document.getElementById('toggle-btn');
+        const greetingLabel = document.getElementById('greeting-label');
+        
+        toggleBtn.addEventListener('click', () => {
+            isTreeForm = !isTreeForm;
+            toggleBtn.textContent = isTreeForm ? "Scramble Elements" : "Assemble Tree";
+            
+            // Button Styles
+            if (isTreeForm) {
+                toggleBtn.classList.remove('bg-emerald-950/80', 'text-emerald-400', 'border-emerald-600');
+                toggleBtn.classList.add('bg-gradient-to-r', 'from-amber-200', 'to-yellow-500', 'text-black', 'border-yellow-400', 'scale-110', 'shadow-[0_0_30px_rgba(255,215,0,0.6)]');
+            } else {
+                toggleBtn.classList.add('bg-emerald-950/80', 'text-emerald-400', 'border-emerald-600');
+                toggleBtn.classList.remove('bg-gradient-to-r', 'from-amber-200', 'to-yellow-500', 'text-black', 'border-yellow-400', 'scale-110', 'shadow-[0_0_30px_rgba(255,215,0,0.6)]');
+            }
+            
+            controls.autoRotate = isTreeForm;
+        });
+
+        // --- ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+        const topVector = new THREE.Vector3(0, CONFIG.TREE_HEIGHT / 2 + 1.2, 0); // Position just above star for text
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // Smoothly interpolate animProgress
+            const target = isTreeForm ? 1 : 0;
+            // Simple dampening logic
+            animProgress += (target - animProgress) * 2.5 * delta;
+
+            // Update Snow
+            const snowPositions = snowSystem.geometry.attributes.position.array;
+            for(let i=0; i<snowCount; i++) {
+                // Move down
+                snowPositions[i*3+1] -= snowVelocities[i];
+                // Reset if too low
+                if(snowPositions[i*3+1] < -30) {
+                    snowPositions[i*3+1] = 30;
+                }
+            }
+            snowSystem.geometry.attributes.position.needsUpdate = true;
+
+            // Update Instanced Meshes
+            meshes.forEach(({ mesh, data }) => {
+                for (let i = 0; i < data.length; i++) {
+                    const item = data[i];
+                    
+                    // Position Lerp
+                    _position.lerpVectors(item.scatterPos, item.treePos, animProgress);
+                    
+                    // Add noise when scattered
+                    if (animProgress < 0.95) {
+                        const noise = Math.sin(time + i * 0.1) * (1 - animProgress) * 0.5;
+                        _position.y += noise;
+                    }
+                    dummy.position.copy(_position);
+
+                    // Rotation
+                    if (item.type === 'needle') {
+                        dummy.lookAt(0, _position.y, 0);
+                    } else if (item.type === 'ribbon') {
+                        if (animProgress > 0.8) {
+                            dummy.quaternion.slerp(item.rotation, (animProgress - 0.8) * 5);
+                        } else {
+                            dummy.rotation.set(i * 0.1, i * 0.1, i * 0.1);
+                        }
+                    } else {
+                        // Gifts and Ornaments
+                        dummy.rotation.set(0, i + time * 0.5, item.type === 'gift' ? 0 : i * 0.1);
+                    }
+
+                    // Scale
+                    let s = item.scale;
+                    if (item.type === 'ribbon') {
+                        // Grow ribbon particles
+                        dummy.scale.set(0.3, 0.05, 0.4).multiplyScalar(animProgress);
+                        if (animProgress < 0.1) dummy.scale.setScalar(0.2);
+                    } else {
+                        dummy.scale.setScalar(s);
+                    }
+
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(i, dummy.matrix);
+                }
+                mesh.instanceMatrix.needsUpdate = true;
+            });
+
+            // Star Animation
+            const starScale = animProgress * (1 + Math.sin(time * 2) * 0.05);
+            star.scale.setScalar(starScale);
+            star.rotation.y += 0.01;
+
+            // Update Text Position
+            // Project 3D position to 2D screen
+            if (isTreeForm && animProgress > 0.8) {
+                // Update vector projection
+                topVector.set(0, CONFIG.TREE_HEIGHT / 2 + 2, 0);
+                topVector.project(camera);
+
+                const x = (topVector.x * .5 + .5) * window.innerWidth;
+                const y = (topVector.y * -.5 + .5) * window.innerHeight;
+
+                greetingLabel.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
+                greetingLabel.style.opacity = '1';
+            } else {
+                greetingLabel.style.opacity = '0';
+            }
+
+            controls.update();
+            composer.render();
+        }
+
+        // --- RESIZE ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start
+        animate();
+    </script>
+</body>
+</html>
